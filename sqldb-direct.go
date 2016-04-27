@@ -79,7 +79,7 @@ func (r *Race) Create(db *sql.DB) (err error) {
 }
 
 func (r *Race) GetByName(db *sql.DB) (err error) {
-	err = db.QueryRow("SELECT ID, Name, Location, CreatedAt FROM Races WHERE Name=?", r.Name).Scan(
+	err = db.QueryRow("SELECT ID, Name, Location, CreatedAt FROM Races WHERE Name=? AND Location=?", r.Name, r.Location).Scan(
 		&r.ID, &r.Name, &r.Location, &r.CreatedAt)
 	return
 }

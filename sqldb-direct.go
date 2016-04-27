@@ -18,19 +18,109 @@ import (
 	_ "github.com/mattn/go-sqlite3"
 )
 
+//Club
 type Club struct {
-	ID        uint
+	ID        int64
 	Name      string
 	CreatedAt time.Time
 }
 
+func (c *Club) Create(db *sql.DB) (err error) {
+	row, err := db.Exec(`INSERT INTO Clubs(Name) VALUES(?)`, c.Name)
+	if err != nil {
+		return err
+	}
+	c.ID, err = row.LastInsertId()
+	if err != nil {
+		return err
+	}
+	err = c.GetByID(db)
+	return err
+}
+
+func (c *Club) GetByName(db *sql.DB) (err error) {
+	err = db.QueryRow("SELECT ID, Name, CreatedAt FROM Clubs WHERE Name=?", c.Name).Scan(
+		&c.ID, &c.Name, &c.CreatedAt)
+	if err != nil {
+		log.Fatal(err)
+	}
+	return
+}
+
+func (c *Club) GetByID(db *sql.DB) (err error) {
+	err = db.QueryRow("SELECT ID, Name, CreatedAt FROM Clubs WHERE ID=?", c.ID).Scan(
+		&c.ID, &c.Name, &c.CreatedAt)
+	if err != nil {
+		log.Fatal(err)
+	}
+	return
+}
+
+//Race
 type Race struct {
-	ID        uint
+	ID        int64
 	Location  string
 	Name      string
 	CreatedAt time.Time
 }
 
+func (r *Race) Create(db *sql.DB) (err error) {
+	row, err := db.Exec(`INSERT INTO Races(Name, location) VALUES(?, ?)`, r.Name, r.Location)
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	r.ID, err = row.LastInsertId()
+	if err != nil {
+		log.Fatal(err)
+	}
+	err = r.GetByID(db)
+	return err
+}
+
+func (r *Race) GetByName(db *sql.DB) (err error) {
+	err = db.QueryRow("SELECT ID, Name, Location, CreatedAt FROM Races WHERE Name=?", r.Name).Scan(
+		&r.ID, &r.Name, &r.Location, &r.CreatedAt)
+	return
+}
+
+func (r *Race) GetByID(db *sql.DB) (err error) {
+	err = db.QueryRow("SELECT ID, Name, Location, CreatedAt FROM Races WHERE ID=?", r.ID).Scan(
+		&r.ID, &r.Name, &r.Location, &r.CreatedAt)
+	return
+}
+
+//RaceClubAssociations
+type RaceClubAssociations struct {
+	ID     int64
+	RaceID int64
+	ClubID int64
+}
+
+// Associate race to club by ID
+func (rca *RaceClubAssociations) Associate(db *sql.DB) (err error) {
+	_, err = db.Exec(`INSERT INTO RaceClubAssociations(clubID, raceID) VALUES(?, ?)`, rca.ClubID, rca.RaceID)
+	return
+}
+
+// GetClubsAssociatedToRace get all clubs associated to race via the Race ID
+func (rca *RaceClubAssociations) GetClubsAssociatedToRace(db *sql.DB) (ret []Club, err error) {
+	rows, err := db.Query("SELECT c.ID, c.Name FROM RaceClubAssociations rc, Clubs c WHERE rc.raceID = ? AND rc.clubID = c.ID", rca.RaceID)
+	if err != nil {
+		return
+	}
+	for rows.Next() {
+		club := Club{}
+		err = rows.Scan(&club.ID, &club.Name)
+		if err != nil {
+			return
+		}
+		ret = append(ret, club)
+	}
+	return
+}
+
+// DB Impl
 type Impl struct {
 	DB         *sql.DB
 	DBLocation string
@@ -64,68 +154,7 @@ func (i *Impl) CreateSchema() {
 	}
 }
 
-func (i *Impl) CreateClub(name string) (int64, error) {
-	result, err := i.DB.Exec(`INSERT INTO Clubs(Name) VALUES(?)`, name)
-	if err != nil {
-		log.Fatal(err)
-	}
-	return result.LastInsertId()
-}
-
-func (i *Impl) CreateRace(name, location string) (int64, error) {
-	result, err := i.DB.Exec(`INSERT INTO Races(Name, location) VALUES(?, ?)`, name, location)
-	if err != nil {
-		log.Fatal(err)
-	}
-	return result.LastInsertId()
-}
-
-func (i *Impl) AssociateClubRace(clubID, raceID int64) (int64, error) {
-	result, err := i.DB.Exec(`INSERT INTO RaceClubAssociations(clubID, raceID) VALUES(?, ?)`, clubID, raceID)
-	if err != nil {
-		log.Fatal(err)
-	}
-	return result.LastInsertId()
-}
-
-// GetClubByName
-func (i *Impl) GetClubByName(name string) (club Club) {
-	err := i.DB.QueryRow("SELECT ID, Name, CreatedAt FROM Clubs WHERE Name=?", name).Scan(
-		&club.ID, &club.Name, &club.CreatedAt)
-	if err != nil {
-		log.Fatal(err)
-	}
-	return
-}
-
-// GetRaceByName
-func (i *Impl) GetRaceByName(name string) (race Race) {
-	err := i.DB.QueryRow("SELECT ID, Name, Location, CreatedAt FROM Races WHERE Name=?", name).Scan(
-		&race.ID, &race.Name, &race.Location, &race.CreatedAt)
-	if err != nil {
-		log.Fatal(err)
-	}
-	return
-}
-
-func (i *Impl) GetClubsAssociatedToRace(raceID int64) (ret []Club) {
-	rows, err := i.DB.Query("SELECT c.ID, c.Name FROM RaceClubAssociations rc, Clubs c WHERE rc.raceID = ? AND rc.clubID = c.ID", raceID)
-	if err != nil {
-		log.Fatal(err)
-	}
-	for rows.Next() {
-		club := Club{}
-		err := rows.Scan(&club.ID, &club.Name)
-		if err != nil {
-			log.Fatal(err)
-		}
-		ret = append(ret, club)
-	}
-	return
-}
-
 func main() {
-
 	i := Impl{DBLocation: "/tmp/screw.db"}
 
 	cmd := exec.Command("rm", "-f", i.DBLocation)
@@ -137,36 +166,49 @@ func main() {
 	i.InitDB()
 	i.CreateSchema()
 
-	newclubID, err := i.CreateClub("Jaures")
-	if err != nil {
-		log.Fatal(err)
-	}
-	secondClubID, err := i.CreateClub("Abesses")
-	if err != nil {
+	jauresClub := Club{Name: "Jaures"}
+	if err = jauresClub.Create(i.DB); err != nil {
 		log.Fatal(err)
 	}
 
-	newRaceID, err := i.CreateRace("Marathon", "Paris")
-	if err != nil {
+	abesseClub := Club{Name: "Abesses"}
+	if err := abesseClub.Create(i.DB); err != nil {
 		log.Fatal(err)
 	}
 
-	_, err = i.AssociateClubRace(newclubID, newRaceID)
-	if err != nil {
-		log.Fatal(err)
-	}
-	_, err = i.AssociateClubRace(secondClubID, newRaceID)
-	if err != nil {
+	marathonRace := Race{Name: "Marathon", Location: "Paris"}
+	if err := marathonRace.Create(i.DB); err != nil {
 		log.Fatal(err)
 	}
 
-	fmt.Println("Getting all clubs associated to a race")
-	ret := i.GetClubsAssociatedToRace(newRaceID)
+	associaTion := RaceClubAssociations{ClubID: jauresClub.ID, RaceID: marathonRace.ID}
+	if err := associaTion.Associate(i.DB); err != nil {
+		log.Fatal(err)
+	}
+
+	associaTion = RaceClubAssociations{ClubID: abesseClub.ID, RaceID: marathonRace.ID}
+	if err := associaTion.Associate(i.DB); err != nil {
+		log.Fatal(err)
+	}
+
+	var ret = []Club{}
+	fmt.Println("Getting all clubs associated to a race: " + marathonRace.Name)
+	associaTions := RaceClubAssociations{RaceID: marathonRace.ID}
+	if ret, err = associaTions.GetClubsAssociatedToRace(i.DB); err != nil {
+		log.Fatal(err)
+	}
 	for _, v := range ret {
-		fmt.Println(v.Name)
+		fmt.Println("\t" + v.Name)
 	}
 
-	fmt.Println(i.GetClubByName("Jaures"))
-	fmt.Println(i.GetRaceByName("Marathon"))
+	jaures := Club{Name: "Jaures"}
+	if err = jaures.GetByName(i.DB); err != nil {
+		log.Fatal(err)
+	}
 
+	var r = Race{Name: "Marathon", Location: "Paris"}
+	if err = r.GetByName(i.DB); err != nil {
+		log.Fatal(err)
+	}
+	fmt.Println(r.Name, r.ID, r.CreatedAt)
 }
